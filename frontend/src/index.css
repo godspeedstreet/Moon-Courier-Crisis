@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --color-moon-50: #f8fafc;
+  --color-moon-100: #f1f5f9;
+  --color-moon-200: #e2e8f0;
+  --color-moon-300: #cbd5e1;
+  --color-moon-400: #94a3b8;
+  --color-moon-500: #64748b;
+  --color-moon-600: #475569;
+  --color-moon-700: #334155;
+  --color-moon-800: #1e293b;
+  --color-moon-900: #0f172a;
+  --color-moon-950: #020617;
+
+  --color-zone-safe: #4ade80;
+  --color-zone-moderate: #fbbf24;
+  --color-zone-dangerous: #f87171;
+  --color-zone-impassable: #6b7280;
+}
+
+@layer base {
+  * {
+    border-color: hsl(217.2 32.6% 17.5%);
+  }
+  body {
+    background-color: #020617;
+    color: #f8fafc;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .hex-grid-bg {
+    background-image: 
+      linear-gradient(30deg, #1e293b 12%, transparent 12.5%, transparent 87%, #1e293b 87.5%, #1e293b),
+      linear-gradient(150deg, #1e293b 12%, transparent 12.5%, transparent 87%, #1e293b 87.5%, #1e293b),
+      linear-gradient(30deg, #1e293b 12%, transparent 12.5%, transparent 87%, #1e293b 87.5%, #1e293b),
+      linear-gradient(150deg, #1e293b 12%, transparent 12.5%, transparent 87%, #1e293b 87.5%, #1e293b),
+      linear-gradient(60deg, #1e293b 25%, transparent 25.5%, transparent 75%, #1e293b 75%, #1e293b),
+      linear-gradient(60deg, #1e293b 25%, transparent 25.5%, transparent 75%, #1e293b 75%, #1e293b);
+    background-size: 80px 140px;
+    background-position: 0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px;
+  }
+  
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
