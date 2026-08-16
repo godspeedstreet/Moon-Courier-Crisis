@@ -1,0 +1,15 @@
+# Keep runtime state out of the image: the DB is created and seeded on startup
+venv/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+tests/
+conftest.py
+.git/
+.gitignore
+Dockerfile
+.dockerignore
