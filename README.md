@@ -7,8 +7,7 @@
 ### Через Docker Compose (рекомендуется)
 
 ```bash
-# Клонировать репозиторий
-git clone <repo-url>
+# Скачать репозиторий и зайти в терминал
 cd moon-courier-crisis
 
 # Запустить всё одной командой
@@ -25,7 +24,6 @@ docker-compose up --build
 ```bash
 cd moon-courier-crisis/backend
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
