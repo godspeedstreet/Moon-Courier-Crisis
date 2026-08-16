@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Core correctness rules + import hygiene and modern typing; style-only
+# categories (UP006/UP045) are auto-fixed and kept.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "PERF", "RUF"]
+ignore = [
+    "B008",   # FastAPI Depends() in parameter defaults is idiomatic
+    "DTZ",    # naive datetime.utcnow() is used consistently with SQLite storage
+    "RUF001", # Russian UI strings contain Cyrillic letters that look like Latin
+    "RUF002",
+    "RUF003",
+    "UP042",  # keep (str, enum.Enum) pattern used across models and Pydantic schemas
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
