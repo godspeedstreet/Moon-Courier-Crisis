@@ -17,6 +17,7 @@ const STATUS_CONFIG: Record<RoverStatus, { label: string; variant: BadgeProps['v
   charging: { label: 'Зарядка', variant: 'success', icon: <Zap className="w-3 h-3" /> },
   broken: { label: 'Сломан', variant: 'destructive', icon: <AlertTriangle className="w-3 h-3" /> },
   returning: { label: 'Возвращение', variant: 'secondary', icon: <RotateCcw className="w-3 h-3" /> },
+  lost: { label: 'Потерян', variant: 'destructive', icon: <AlertTriangle className="w-3 h-3" /> },
 };
 
 interface BadgeProps {
@@ -38,9 +39,9 @@ export function RoverPanel() {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sortedRovers = useMemo(() => 
+  const sortedRovers = useMemo(() =>
     [...rovers].sort((a, b) => {
-      const statusOrder: Record<RoverStatus, number> = { delivering: 0, returning: 1, charging: 2, broken: 3, idle: 4 };
+      const statusOrder: Record<RoverStatus, number> = { delivering: 0, returning: 1, charging: 2, broken: 3, lost: 4, idle: 5 };
       return statusOrder[a.status] - statusOrder[b.status];
     }), [rovers]);
 

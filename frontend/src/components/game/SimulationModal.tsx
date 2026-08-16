@@ -9,6 +9,7 @@ import type { Order, Rover } from '../../types';
 import { getHexCorners } from '../../lib/hex';
 import { deliveryApi, roversApi, ordersApi, gameApi } from '../../lib/api';
 import { useGameStore } from '../../store/gameStore';
+import { toast } from '../../hooks/use-toast';
 
 interface SimulationModalProps {
   open: boolean;
@@ -59,6 +60,10 @@ export function SimulationModal({ open, onOpenChange, order, rovers, onConfirm }
       setOrders(updatedOrders);
       setGameState(updatedState);
 
+      toast({
+        title: 'Ровер отправлен',
+        description: `${selectedRover?.name ?? 'Ровер'} в пути — результат станет известен в конце дня`,
+      });
       onConfirm(selectedRoverId);
       onOpenChange(false);
     } catch (e: any) {

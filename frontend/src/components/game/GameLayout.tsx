@@ -14,9 +14,9 @@ import { Map, Truck, Package, List, Settings, RotateCcw } from 'lucide-react';
 type TabValue = 'map' | 'rovers' | 'orders' | 'events';
 
 export function GameLayout() {
-const { 
-    activeTab, setActiveTab, 
-    gameState, rovers, simulationResult, showSimulation, setShowSimulation,
+const {
+    activeTab, setActiveTab,
+    rovers, simulationResult, showSimulation, setShowSimulation,
     setZones, setRovers, setGameState, setOrders, setEvents,
   } = useGameStore();
 

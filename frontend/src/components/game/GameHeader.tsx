@@ -6,6 +6,7 @@ import { Badge } from '../ui/Badge';
 import { Sun, Coins, Star, AlertTriangle, RotateCcw, Trophy } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { gameApi, zonesApi, ordersApi, eventsApi } from '../../lib/api';
+import { toast } from '../../hooks/use-toast';
 
 export function GameHeader() {
   const { gameState, rovers, setGameState, setRovers, setOrders, setEvents, setZones } = useGameStore();
@@ -44,6 +45,17 @@ export function GameHeader() {
         setEvents(updatedEvents);
         setZones(updatedZones);
         setRovers(updatedRovers);
+
+        // Outcome of the day: deliveries, events, expiry
+        (data.messages || []).slice(0, 4).forEach((msg, i) => {
+          const bad = /провалена|просрочен|ПОТЕРЯН|сломан|ОКОНЧЕНА/i.test(msg);
+          setTimeout(() => {
+            toast({
+              title: `День ${data.day}`,
+              description: bad ? `⚠️ ${msg}` : msg,
+            });
+          }, i * 300);
+        });
       }
     } catch (e) {
       console.error('Next day failed:', e);
