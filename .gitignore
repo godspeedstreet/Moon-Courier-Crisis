@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# SQLite databases (created and seeded at runtime)
+*.db
+*.sqlite3
+
+# Node
+node_modules/
+frontend/dist/
+*.local
+
+# Environment
+.env
+.env.*
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+frontend/dist-ssr/
