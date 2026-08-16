@@ -10,7 +10,7 @@ export interface Zone {
   name?: string;
 }
 
-export type RoverStatus = 'idle' | 'delivering' | 'charging' | 'broken' | 'returning';
+export type RoverStatus = 'idle' | 'delivering' | 'charging' | 'broken' | 'returning' | 'lost';
 
 export interface Rover {
   id: number;
@@ -28,6 +28,7 @@ export interface Rover {
   efficiency: number;
   deliveries_completed: number;
   total_distance: number;
+  repair_days_left?: number;
   created_at: string;
   updated_at: string;
 }
@@ -76,7 +77,8 @@ export interface Order {
   delivery_q: number;
   delivery_r: number;
   status: OrderStatus;
-  expires_at?: string;
+  created_day?: number;
+  expires_day?: number;
   created_at: string;
   assigned_rover_id?: number;
   assigned_at?: string;
@@ -92,6 +94,8 @@ export interface Delivery {
   distance: number;
   battery_consumed: number;
   success: boolean;
+  resolved: boolean;
+  success_chance: number;
   failure_reason?: string;
   credits_earned: number;
   path_taken?: Array<{ q: number; r: number }>;
@@ -118,6 +122,8 @@ export interface GameState {
   successful_deliveries: number;
   failed_deliveries: number;
   rovers_lost: number;
+  charge_bonus: number;
+  dust_storm_active: boolean;
   is_game_over: boolean;
   game_over_reason?: string;
   won: boolean;
@@ -143,6 +149,7 @@ export interface NextDayResponse {
   new_orders: Order[];
   events: GameEvent[];
   rover_updates: Rover[];
+  messages?: string[];
   is_game_over: boolean;
   game_over_reason?: string;
   won: boolean;
