@@ -1,9 +1,9 @@
 """Initial game data seeding."""
 from sqlalchemy.orm import Session
 
-from app.hex_utils import generate_moon_map, Hex
 from app.game_logic import ZONE_MODIFIERS, generate_orders
-from app.models import Zone, Rover, GameState, Order
+from app.hex_utils import Hex, generate_moon_map
+from app.models import GameState, Rover, Zone
 
 
 def seed_initial_data(db: Session) -> None:

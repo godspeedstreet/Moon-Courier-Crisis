@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base, SessionLocal
-from app.routes import router
+
+from app.database import Base, SessionLocal, engine
 from app.models import Rover
+from app.routes import router
 from app.seed import seed_initial_data
 
 
