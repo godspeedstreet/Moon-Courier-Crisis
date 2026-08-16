@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: /backend
+        working-directory: ./backend
 
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: /frontend
+        working-directory: ./frontend
 
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
       - name: Build backend image
         uses: docker/build-push-action@v5
         with:
-          context: /backend
+          context: ./backend
           push: false
           tags: moon-courier-backend:latest
           load: true
@@ -97,7 +97,7 @@ jobs:
       - name: Build frontend image
         uses: docker/build-push-action@v5
         with:
-          context: /frontend
+          context: ./frontend
           push: false
           tags: moon-courier-frontend:latest
           load: true
