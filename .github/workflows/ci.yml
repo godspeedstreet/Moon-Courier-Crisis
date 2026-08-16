@@ -34,12 +34,12 @@ jobs:
 
       - name: Run linting (ruff)
         run: |
-          pip install ruff
+          pip install ruff==0.16.3
           ruff check app/
 
       - name: Run type checking (mypy)
         run: |
-          pip install mypy
+          pip install mypy==2.3.1
           mypy app/
 
       - name: Run tests
