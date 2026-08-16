@@ -1,7 +1,10 @@
 import enum
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Enum, JSON
-from sqlalchemy.orm import relationship
+from typing import Any, Optional
+
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.database import Base
 
 
@@ -18,6 +21,7 @@ class RoverStatus(str, enum.Enum):
     CHARGING = "charging"
     BROKEN = "broken"
     RETURNING = "returning"
+    LOST = "lost"
 
 
 class OrderStatus(str, enum.Enum):
@@ -41,108 +45,115 @@ class EventType(str, enum.Enum):
 class Zone(Base):
     __tablename__ = "zones"
 
-    id = Column(Integer, primary_key=True, index=True)
-    q = Column(Integer, index=True)  # hex axial coordinates
-    r = Column(Integer, index=True)
-    zone_type = Column(Enum(ZoneType), default=ZoneType.SAFE)
-    risk_modifier = Column(Float, default=1.0)  # multiplier for failure chance
-    speed_modifier = Column(Float, default=1.0)  # multiplier for travel time
-    name = Column(String, nullable=True)  # crater name, base name, etc.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    q: Mapped[int] = mapped_column(Integer, index=True)  # hex axial coordinates
+    r: Mapped[int] = mapped_column(Integer, index=True)
+    zone_type: Mapped[ZoneType] = mapped_column(Enum(ZoneType), default=ZoneType.SAFE)
+    risk_modifier: Mapped[float] = mapped_column(Float, default=1.0)  # multiplier for failure chance
+    speed_modifier: Mapped[float] = mapped_column(Float, default=1.0)  # multiplier for travel time
+    name: Mapped[str | None] = mapped_column(String, nullable=True)  # crater name, base name, etc.
 
 
 class Rover(Base):
     __tablename__ = "rovers"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    max_battery = Column(Float, default=100.0)
-    current_battery = Column(Float, default=100.0)
-    max_cargo = Column(Float, default=50.0)  # kg
-    current_cargo = Column(Float, default=0.0)
-    status = Column(Enum(RoverStatus), default=RoverStatus.IDLE)
-    position_q = Column(Integer, default=0)  # start at base (0,0)
-    position_r = Column(Integer, default=0)
-    base_q = Column(Integer, default=0)
-    base_r = Column(Integer, default=0)
-    speed = Column(Float, default=10.0)  # km/h base speed
-    efficiency = Column(Float, default=1.0)  # battery efficiency multiplier
-    deliveries_completed = Column(Integer, default=0)
-    total_distance = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, unique=True, index=True)
+    max_battery: Mapped[float] = mapped_column(Float, default=100.0)
+    current_battery: Mapped[float] = mapped_column(Float, default=100.0)
+    max_cargo: Mapped[float] = mapped_column(Float, default=50.0)  # kg
+    current_cargo: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[RoverStatus] = mapped_column(Enum(RoverStatus), default=RoverStatus.IDLE)
+    position_q: Mapped[int] = mapped_column(Integer, default=0)  # start at base (0,0)
+    position_r: Mapped[int] = mapped_column(Integer, default=0)
+    base_q: Mapped[int] = mapped_column(Integer, default=0)
+    base_r: Mapped[int] = mapped_column(Integer, default=0)
+    speed: Mapped[float] = mapped_column(Float, default=10.0)  # km/h base speed
+    efficiency: Mapped[float] = mapped_column(Float, default=1.0)  # battery efficiency multiplier
+    deliveries_completed: Mapped[int] = mapped_column(Integer, default=0)
+    total_distance: Mapped[float] = mapped_column(Float, default=0.0)
+    repair_days_left: Mapped[int] = mapped_column(Integer, default=0)  # days of repair remaining when BROKEN
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    deliveries = relationship("Delivery", back_populates="rover")
+    deliveries: Mapped[list["Delivery"]] = relationship(back_populates="rover")
 
 
 class Order(Base):
     __tablename__ = "orders"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, index=True)
-    description = Column(String, nullable=True)
-    weight = Column(Float)  # kg
-    reward = Column(Float)  # credits
-    urgency = Column(Integer, default=1)  # 1-5, higher = more urgent
-    risk_level = Column(Integer, default=1)  # 1-5, higher = riskier
-    pickup_q = Column(Integer)
-    pickup_r = Column(Integer)
-    delivery_q = Column(Integer)
-    delivery_r = Column(Integer)
-    status = Column(Enum(OrderStatus), default=OrderStatus.PENDING)
-    expires_at = Column(DateTime, nullable=True)  # for urgent orders
-    created_at = Column(DateTime, default=datetime.utcnow)
-    assigned_rover_id = Column(Integer, ForeignKey("rovers.id"), nullable=True)
-    assigned_at = Column(DateTime, nullable=True)
-    delivered_at = Column(DateTime, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String, index=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    weight: Mapped[float] = mapped_column(Float)  # kg
+    reward: Mapped[float] = mapped_column(Float)  # credits
+    urgency: Mapped[int] = mapped_column(Integer, default=1)  # 1-5, higher = more urgent
+    risk_level: Mapped[int] = mapped_column(Integer, default=1)  # 1-5, higher = riskier
+    pickup_q: Mapped[int] = mapped_column(Integer)
+    pickup_r: Mapped[int] = mapped_column(Integer)
+    delivery_q: Mapped[int] = mapped_column(Integer)
+    delivery_r: Mapped[int] = mapped_column(Integer)
+    status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.PENDING)
+    created_day: Mapped[int] = mapped_column(Integer, default=1)  # game day when the order appeared
+    expires_day: Mapped[int | None] = mapped_column(Integer, nullable=True)  # game-day deadline for urgent orders
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    assigned_rover_id: Mapped[int | None] = mapped_column(ForeignKey("rovers.id"), nullable=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    rover = relationship("Rover")
-    delivery = relationship("Delivery", back_populates="order", uselist=False)
+    rover: Mapped[Optional["Rover"]] = relationship()
+    delivery: Mapped[Optional["Delivery"]] = relationship(back_populates="order", uselist=False)
 
 
 class Delivery(Base):
     __tablename__ = "deliveries"
 
-    id = Column(Integer, primary_key=True, index=True)
-    rover_id = Column(Integer, ForeignKey("rovers.id"))
-    order_id = Column(Integer, ForeignKey("orders.id"), unique=True)
-    started_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    distance = Column(Float)  # total km
-    battery_consumed = Column(Float, default=0.0)
-    success = Column(Boolean, default=False)
-    failure_reason = Column(String, nullable=True)
-    credits_earned = Column(Float, default=0.0)
-    path_taken = Column(JSON, nullable=True)  # list of hex coordinates
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rover_id: Mapped[int] = mapped_column(ForeignKey("rovers.id"))
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    distance: Mapped[float] = mapped_column(Float)  # total km
+    battery_consumed: Mapped[float] = mapped_column(Float, default=0.0)
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)  # outcome rolled at the end of the day
+    success_chance: Mapped[float] = mapped_column(Float, default=0.0)  # chance fixed at assignment time
+    failure_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    credits_earned: Mapped[float] = mapped_column(Float, default=0.0)
+    path_taken: Mapped[list[dict[str, int]] | None] = mapped_column(JSON, nullable=True)  # list of hex coordinates
 
-    rover = relationship("Rover", back_populates="deliveries")
-    order = relationship("Order", back_populates="delivery")
+    rover: Mapped["Rover"] = relationship(back_populates="deliveries")
+    order: Mapped["Order"] = relationship(back_populates="delivery")
 
 
 class GameEvent(Base):
     __tablename__ = "game_events"
 
-    id = Column(Integer, primary_key=True, index=True)
-    event_type = Column(Enum(EventType))
-    day = Column(Integer)
-    description = Column(String)
-    data = Column(JSON, nullable=True)  # event-specific data
-    resolved = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_type: Mapped[EventType] = mapped_column(Enum(EventType))
+    day: Mapped[int] = mapped_column(Integer)
+    description: Mapped[str] = mapped_column(String)
+    data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # event-specific data
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class GameState(Base):
     __tablename__ = "game_state"
 
-    id = Column(Integer, primary_key=True, default=1)
-    current_day = Column(Integer, default=1)
-    max_days = Column(Integer, default=7)
-    credits = Column(Float, default=1000.0)
-    base_rating = Column(Float, default=100.0)  # 0-100, game over if < 0
-    total_deliveries = Column(Integer, default=0)
-    successful_deliveries = Column(Integer, default=0)
-    failed_deliveries = Column(Integer, default=0)
-    rovers_lost = Column(Integer, default=0)
-    is_game_over = Column(Boolean, default=False)
-    game_over_reason = Column(String, nullable=True)
-    won = Column(Boolean, default=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    current_day: Mapped[int] = mapped_column(Integer, default=1)
+    max_days: Mapped[int] = mapped_column(Integer, default=7)
+    credits: Mapped[float] = mapped_column(Float, default=1000.0)
+    base_rating: Mapped[float] = mapped_column(Float, default=100.0)  # 0-100, game over if < 0
+    total_deliveries: Mapped[int] = mapped_column(Integer, default=0)
+    successful_deliveries: Mapped[int] = mapped_column(Integer, default=0)
+    failed_deliveries: Mapped[int] = mapped_column(Integer, default=0)
+    rovers_lost: Mapped[int] = mapped_column(Integer, default=0)
+    charge_bonus: Mapped[float] = mapped_column(Float, default=0.0)  # stacking bonus from BASE_UPGRADE events
+    dust_storm_active: Mapped[bool] = mapped_column(Boolean, default=False)  # DUST_STORM effect for the current day
+    flare_zone: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # SOLAR_FLARE zone to restore next day
+    is_game_over: Mapped[bool] = mapped_column(Boolean, default=False)
+    game_over_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    won: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,25 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional
-from datetime import datetime, timedelta
-import random
 
 from app.database import get_db
-from app.models import (
-    Zone, Rover, Order, Delivery, GameEvent, GameState,
-    ZoneType, RoverStatus, OrderStatus, EventType
-)
-from app.schemas import (
-    ZoneResponse, RoverCreate, RoverUpdate, RoverResponse,
-    OrderCreate, OrderResponse, DeliveryResponse, DeliverySimulationResponse,
-    GameEventResponse, GameStateResponse, NextDayResponse,
-    AssignOrderRequest, DeliverySimulationRequest
-)
 from app.game_logic import (
-    calculate_delivery, can_deliver, generate_orders, generate_random_event,
-    apply_event, next_day_logic, Hex, a_star_search, generate_moon_map, ZONE_MODIFIERS
+    ZONE_MODIFIERS,
+    calculate_delivery,
+    can_deliver,
+    next_day_logic,
 )
-from app.hex_utils import ZoneType as HexZoneType
+from app.hex_utils import generate_moon_map
+from app.models import Delivery, GameEvent, GameState, Order, OrderStatus, Rover, RoverStatus, Zone
+from app.schemas import (
+    AssignOrderRequest,
+    DeliveryResponse,
+    DeliverySimulationRequest,
+    DeliverySimulationResponse,
+    GameEventResponse,
+    GameStateResponse,
+    NextDayResponse,
+    OrderCreate,
+    OrderResponse,
+    RoverCreate,
+    RoverResponse,
+    RoverUpdate,
+    ZoneResponse,
+)
 from app.seed import seed_initial_data
 
 router = APIRouter()
@@ -38,13 +45,13 @@ def _persist_zone_updates(db: Session, zone_updates: dict) -> None:
 
 
 # ---------- Zones ----------
-@router.get("/zones", response_model=List[ZoneResponse])
+@router.get("/zones", response_model=list[ZoneResponse])
 def get_zones(db: Session = Depends(get_db)):
     zones = db.query(Zone).all()
     return zones
 
 
-@router.post("/zones/generate", response_model=List[ZoneResponse])
+@router.post("/zones/generate", response_model=list[ZoneResponse])
 def generate_zones(radius: int = 8, db: Session = Depends(get_db)):
     """Generate procedural moon map."""
     db.query(Zone).delete()
@@ -69,7 +76,7 @@ def generate_zones(radius: int = 8, db: Session = Depends(get_db)):
 
 
 # ---------- Rovers ----------
-@router.get("/rovers", response_model=List[RoverResponse])
+@router.get("/rovers", response_model=list[RoverResponse])
 def get_rovers(db: Session = Depends(get_db)):
     return db.query(Rover).all()
 
@@ -130,9 +137,9 @@ def charge_rover(rover_id: int, db: Session = Depends(get_db)):
 
 
 # ---------- Orders ----------
-@router.get("/orders", response_model=List[OrderResponse])
+@router.get("/orders", response_model=list[OrderResponse])
 def get_orders(
-    status: Optional[OrderStatus] = None,
+    status: OrderStatus | None = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(Order)
@@ -163,16 +170,20 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
 def simulate_delivery(request: DeliverySimulationRequest, db: Session = Depends(get_db)):
     rover = db.query(Rover).filter(Rover.id == request.rover_id).first()
     order = db.query(Order).filter(Order.id == request.order_id).first()
-    
+
     if not rover:
         raise HTTPException(status_code=404, detail="Ровер не найден")
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
-    
+
     zones = {(z.q, z.r): z.zone_type for z in db.query(Zone).all()}
+    state = db.query(GameState).filter(GameState.id == 1).first()
 
     possible, reasons = can_deliver(rover, order, zones)
-    result = calculate_delivery(rover, order, zones, roll_outcome=False)
+    result = calculate_delivery(
+        rover, order, zones, roll_outcome=False,
+        dust_storm=bool(state and state.dust_storm_active),
+    )
 
     feasible = possible and result.feasible
     return DeliverySimulationResponse(
@@ -182,7 +193,7 @@ def simulate_delivery(request: DeliverySimulationRequest, db: Session = Depends(
         time_estimate=result.time_hours,
         risk_score=1.0 - result.success_chance,
         path=[h.to_dict() for h in result.path],
-        warnings=result.warnings + ([] if possible else reasons),
+        warnings=(result.warnings or []) + ([] if possible else reasons),
         failure_reason=result.failure_reason if not feasible else None,
         success_chance=result.success_chance,
     )
@@ -190,38 +201,40 @@ def simulate_delivery(request: DeliverySimulationRequest, db: Session = Depends(
 
 @router.post("/delivery/assign", response_model=DeliveryResponse)
 def assign_delivery(request: AssignOrderRequest, db: Session = Depends(get_db)):
+    """Send a rover out: the delivery resolves at the end of the day."""
     rover = db.query(Rover).filter(Rover.id == request.rover_id).first()
     order = db.query(Order).filter(Order.id == request.order_id).first()
-    
+
     if not rover:
         raise HTTPException(status_code=404, detail="Ровер не найден")
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
-    
+
     if rover.status != RoverStatus.IDLE:
         raise HTTPException(status_code=400, detail=f"Ровер занят: {rover.status.value}")
-    
+
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"Заказ не доступен: {order.status.value}")
-    
+
     zones = {(z.q, z.r): z.zone_type for z in db.query(Zone).all()}
     possible, reasons = can_deliver(rover, order, zones)
-    
+
     if not possible:
         raise HTTPException(status_code=400, detail="; ".join(reasons))
-    
-    # Simulate delivery (random outcome)
-    result = calculate_delivery(rover, order, zones, roll_outcome=True)
 
-    # Round trip already simulated — rover returns to base
-    rover.current_battery -= result.battery_consumed
-    rover.current_battery = max(0, rover.current_battery)
-    rover.total_distance += result.distance
-    rover.position_q = rover.base_q
-    rover.position_r = rover.base_r
-    rover.current_cargo = 0
+    state = db.query(GameState).filter(GameState.id == 1).first()
+
+    # Plan the route; the outcome is rolled in next-day processing
+    result = calculate_delivery(
+        rover, order, zones, roll_outcome=False,
+        dust_storm=bool(state and state.dust_storm_active),
+    )
+
+    rover.status = RoverStatus.DELIVERING
+    rover.current_cargo = order.weight
     rover.updated_at = datetime.utcnow()
 
+    order.status = OrderStatus.ASSIGNED
     order.assigned_rover_id = rover.id
     order.assigned_at = datetime.utcnow()
 
@@ -230,32 +243,13 @@ def assign_delivery(request: AssignOrderRequest, db: Session = Depends(get_db)):
         order_id=order.id,
         distance=result.distance,
         battery_consumed=result.battery_consumed,
-        success=result.success,
-        failure_reason=result.failure_reason,
-        credits_earned=result.credits_earned,
+        success=False,
+        resolved=False,
+        success_chance=result.success_chance,
+        credits_earned=0.0,
         path_taken=[h.to_dict() for h in result.path],
-        completed_at=datetime.utcnow(),
+        started_at=datetime.utcnow(),
     )
-
-    state = db.query(GameState).filter(GameState.id == 1).first()
-    if state:
-        state.total_deliveries += 1
-        if result.success:
-            order.status = OrderStatus.DELIVERED
-            order.delivered_at = datetime.utcnow()
-            rover.deliveries_completed += 1
-            rover.status = RoverStatus.IDLE
-            state.successful_deliveries += 1
-            state.credits += result.credits_earned
-            state.base_rating = min(100.0, state.base_rating + 2)
-        else:
-            order.status = OrderStatus.FAILED
-            rover.status = RoverStatus.IDLE
-            state.failed_deliveries += 1
-            state.base_rating = max(0.0, state.base_rating - 5)
-            if state.base_rating <= 0:
-                state.is_game_over = True
-                state.game_over_reason = "Рейтинг базы упал до 0"
 
     db.add(delivery)
     db.commit()
@@ -290,14 +284,12 @@ def next_day(db: Session = Depends(get_db)):
     rovers = db.query(Rover).all()
     orders = db.query(Order).all()
     zones = {(z.q, z.r): z.zone_type for z in db.query(Zone).all()}
-    
-    # Get today's deliveries
-    today_deliveries = db.query(Delivery).filter(
-        Delivery.started_at >= datetime.utcnow().replace(hour=0, minute=0, second=0)
-    ).all()
-    
+
+    # Deliveries in transit: their outcome is rolled now
+    active_deliveries = db.query(Delivery).filter(Delivery.resolved == False).all()  # noqa: E712
+
     state.current_day += 1
-    messages, new_orders, events, zone_updates = next_day_logic(state, rovers, orders, zones, today_deliveries)
+    messages, new_orders, events, zone_updates = next_day_logic(state, rovers, orders, zones, active_deliveries)
 
     for order in new_orders:
         db.add(order)
@@ -322,9 +314,10 @@ def next_day(db: Session = Depends(get_db)):
         day=state.current_day,
         credits=state.credits,
         base_rating=state.base_rating,
-        new_orders=new_orders,
+        new_orders=[OrderResponse.model_validate(o) for o in new_orders],
         events=[GameEventResponse.model_validate(e) for e in saved_events],
-        rover_updates=rovers,
+        rover_updates=[RoverResponse.model_validate(r) for r in rovers],
+        messages=messages,
         is_game_over=state.is_game_over,
         game_over_reason=state.game_over_reason,
         won=state.won
@@ -347,7 +340,7 @@ def reset_game(db: Session = Depends(get_db)):
 
 
 # ---------- Events ----------
-@router.get("/events", response_model=List[GameEventResponse])
+@router.get("/events", response_model=list[GameEventResponse])
 def get_events(db: Session = Depends(get_db)):
     return db.query(GameEvent).order_by(GameEvent.created_at.desc()).limit(50).all()
 
@@ -360,13 +353,15 @@ def get_stats(db: Session = Depends(get_db)):
     deliveries = db.query(Delivery).all()
     orders = db.query(Order).all()
     
+    resolved = [d for d in deliveries if d.resolved]
+
     return {
         "game_state": state,
         "rovers_count": len(rovers),
         "active_rovers": len([r for r in rovers if r.status == RoverStatus.IDLE]),
-        "total_deliveries": len(deliveries),
-        "successful_deliveries": len([d for d in deliveries if d.success]),
+        "total_deliveries": len(resolved),
+        "successful_deliveries": len([d for d in resolved if d.success]),
         "pending_orders": len([o for o in orders if o.status == OrderStatus.PENDING]),
-        "total_credits_earned": sum(d.credits_earned for d in deliveries),
+        "total_credits_earned": sum(d.credits_earned for d in resolved),
         "total_distance": sum(r.total_distance for r in rovers),
     }

@@ -2,12 +2,13 @@
 Game logic for Moon Courier Crisis.
 Handles delivery simulation, weight/battery calculations, risk assessment.
 """
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
 import random
-import math
-from app.models import Rover, Order, ZoneType, RoverStatus, OrderStatus, EventType
-from app.hex_utils import Hex, a_star_search, generate_moon_map
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+from app.hex_utils import Hex, a_star_search
+from app.models import Delivery, EventType, Order, OrderStatus, Rover, RoverStatus, ZoneType
 
 
 @dataclass
@@ -17,9 +18,9 @@ class DeliveryResult:
     battery_consumed: float
     time_hours: float
     credits_earned: float
-    path: List[Hex]
-    failure_reason: Optional[str] = None
-    warnings: List[str] = None
+    path: list[Hex]
+    failure_reason: str | None = None
+    warnings: list[str] | None = None
     feasible: bool = True
     success_chance: float = 0.95
 
@@ -42,22 +43,46 @@ ZONE_MODIFIERS = {
     ZoneType.IMPASSABLE: ZoneModifiers(999999.0, 0.0, 999999.0),
 }
 
+FAILURE_REASONS = [
+    "Поломка навигации в пыльной буре",
+    "Перегрев двигателя под нагрузкой",
+    "Повреждение колеса на остром реголите",
+    "Сбой связи с базой",
+    "Непредвиденное сейсмическое событие",
+]
+
+DUST_STORM_SPEED = 0.7      # global speed multiplier during a dust storm
+DUST_STORM_SUCCESS_PENALTY = 0.1
+ROVER_LOST_CHANCE = 0.25    # chance a failed delivery also loses the rover
+BASE_CHARGE_PER_DAY = 30.0
+CHARGE_BONUS_CAP = 0.5
+
+
+def _inc(obj, attr: str, delta: float = 1) -> None:
+    """Increment a numeric column that may be None on transient (unsaved) objects."""
+    setattr(obj, attr, (getattr(obj, attr) or 0) + delta)
+
 
 def calculate_delivery(
     rover: Rover,
     order: Order,
-    zones: Dict[Tuple[int, int], ZoneType],
+    zones: dict[tuple[int, int], ZoneType],
     *,
     roll_outcome: bool = True,
+    dust_storm: bool = False,
 ) -> DeliveryResult:
     """
     Simulate a delivery with all game mechanics:
     - Weight affects battery consumption and speed
     - Battery must be sufficient for round trip
     - Zone risks affect success chance
+    - Dust storm slows all rovers and lowers success chance
     - Impossible deliveries detected
     """
     warnings = []
+    storm_speed = DUST_STORM_SPEED if dust_storm else 1.0
+    if dust_storm:
+        warnings.append("Пыльная буря: скорость всех роверов -30%, шанс успеха -10%")
     
     # Check cargo capacity
     if order.weight > rover.max_cargo:
@@ -123,13 +148,12 @@ def calculate_delivery(
     # Base consumption: 1% per km * weight factor * zone factors
     weight_factor = 1.0 + (order.weight / rover.max_cargo) * 0.5  # up to 1.5x at max load
     
-    battery_per_km = 0  # Will accumulate per zone
-    time_hours = 0
-    risk_accumulator = 0
+    battery_per_km = 0.0  # Will accumulate per zone
+    time_hours = 0.0
+    risk_accumulator = 0.0
     
     for i in range(len(full_path) - 1):
         current_hex = full_path[i]
-        next_hex = full_path[i + 1]
         zone = zones.get((current_hex.q, current_hex.r), ZoneType.SAFE)
         modifiers = ZONE_MODIFIERS[zone]
         
@@ -137,7 +161,7 @@ def calculate_delivery(
         battery_per_km += modifiers.battery_multiplier * weight_factor / rover.efficiency
         
         # Time per segment (hours)
-        time_hours += 1.0 / (rover.speed * modifiers.speed_multiplier)
+        time_hours += 1.0 / (rover.speed * modifiers.speed_multiplier * storm_speed)
         
         # Risk accumulation
         risk_accumulator += modifiers.risk_multiplier * (order.risk_level / 5.0)
@@ -176,6 +200,8 @@ def calculate_delivery(
     battery_penalty = max(0, (1.0 - rover.current_battery / rover.max_battery) * 0.15)
     
     success_chance = base_success - risk_penalty - weight_penalty - battery_penalty
+    if dust_storm:
+        success_chance -= DUST_STORM_SUCCESS_PENALTY
     success_chance = max(0.1, min(0.99, success_chance))  # clamp 10%-99%
 
     if not roll_outcome:
@@ -196,15 +222,8 @@ def calculate_delivery(
     success = random.random() < success_chance
 
     if not success:
-        failure_reasons = [
-            "Поломка навигации в пыльной буре",
-            "Перегрев двигателя под нагрузкой",
-            "Повреждение колеса на острых реголите",
-            "Сбой связи с базой",
-            "Непредвиденное сеисмическое событие"
-        ]
-        failure_reason = random.choice(failure_reasons)
-        credits = 0
+        failure_reason = random.choice(FAILURE_REASONS)
+        credits = 0.0
     else:
         failure_reason = None
         # Credits: base reward minus penalties
@@ -226,7 +245,7 @@ def calculate_delivery(
     )
 
 
-def can_deliver(rover: Rover, order: Order, zones: Dict[Tuple[int, int], ZoneType]) -> Tuple[bool, List[str]]:
+def can_deliver(rover: Rover, order: Order, zones: dict[tuple[int, int], ZoneType]) -> tuple[bool, list[str]]:
     """Quick check if delivery is possible without full simulation."""
     reasons = []
     
@@ -259,7 +278,7 @@ def can_deliver(rover: Rover, order: Order, zones: Dict[Tuple[int, int], ZoneTyp
     if path1 and path2 and path3:
         full_path = path1[:-1] + path2[:-1] + path3
         weight_factor = 1.0 + (order.weight / rover.max_cargo) * 0.5
-        est_battery = 0
+        est_battery = 0.0
         for h in full_path[:-1]:
             zone = zones.get((h.q, h.r), ZoneType.SAFE)
             est_battery += ZONE_MODIFIERS[zone].battery_multiplier * weight_factor / rover.efficiency
@@ -270,8 +289,8 @@ def can_deliver(rover: Rover, order: Order, zones: Dict[Tuple[int, int], ZoneTyp
     return len(reasons) == 0, reasons
 
 
-def generate_orders(day: int, zones: Dict[Tuple[int, int], ZoneType], base_pos: Hex, 
-                    existing_orders: List[Order] = None) -> List[Order]:
+def generate_orders(day: int, zones: dict[tuple[int, int], ZoneType], base_pos: Hex,
+                    existing_orders: list[Order] | None = None) -> list[Order]:
     """Generate new orders for the day."""
     if existing_orders is None:
         existing_orders = []
@@ -305,12 +324,10 @@ def generate_orders(day: int, zones: Dict[Tuple[int, int], ZoneType], base_pos: 
         # Urgency and risk
         urgency = random.randint(1, 5)
         risk_level = random.randint(1, 5)
-        
-        # Urgent orders expire
-        expires_at = None
-        if urgency >= 4:
-            expires_at = None  # Will be set by game loop with day offset
-        
+
+        # Urgent orders must be assigned before the end of the next day
+        expires_day = day + 1 if urgency >= 4 else None
+
         order = Order(
             title=f"Доставка #{day}-{random.randint(100, 999)}",
             description=f"{weight} кг груза из сектора {pickup[0]},{pickup[1]} в {delivery[0]},{delivery[1]}",
@@ -323,13 +340,15 @@ def generate_orders(day: int, zones: Dict[Tuple[int, int], ZoneType], base_pos: 
             delivery_q=delivery[0],
             delivery_r=delivery[1],
             status=OrderStatus.PENDING,
+            created_day=day,
+            expires_day=expires_day,
         )
         orders.append(order)
     
     return orders
 
 
-def generate_random_event(day: int, game_state, rovers: List[Rover]) -> Optional[dict]:
+def generate_random_event(day: int, game_state, rovers: list[Rover]) -> dict | None:
     """Generate a random event for the day."""
     # Base chance increases with days
     base_chance = 0.15 + day * 0.03
@@ -355,7 +374,7 @@ def generate_random_event(day: int, game_state, rovers: List[Rover]) -> Optional
             description = desc
             break
     
-    data = {}
+    data: dict[str, Any] = {}
     if selected_type == EventType.ROVER_MALFUNCTION and rovers:
         idle_rovers = [r for r in rovers if r.status == RoverStatus.IDLE]
         if idle_rovers:
@@ -376,20 +395,64 @@ def generate_random_event(day: int, game_state, rovers: List[Rover]) -> Optional
     }
 
 
+def _make_priority_order(day: int, zones: dict[tuple[int, int], ZoneType]) -> Order | None:
+    """Create a double-reward urgent order for the PRIORITY_ORDER event."""
+    candidates = [pos for pos, z in zones.items() if z != ZoneType.IMPASSABLE and pos != (0, 0)]
+    if len(candidates) < 2:
+        return None
+    pickup = random.choice(candidates)
+    delivery = random.choice(candidates)
+    while delivery == pickup:
+        delivery = random.choice(candidates)
+    weight = round(random.uniform(5, 40), 1)
+    dist = Hex(pickup[0], pickup[1]).distance(Hex(delivery[0], delivery[1]))
+    reward = round((100 + dist * 30 + weight * 2) * 2.0, 1)
+    return Order(
+        title=f"ПРИОРИТЕТНЫЙ #{day}-{random.randint(100, 999)}",
+        description=f"Срочный груз {weight} кг из сектора {pickup[0]},{pickup[1]} в {delivery[0]},{delivery[1]}",
+        weight=weight,
+        reward=reward,
+        urgency=5,
+        risk_level=random.randint(2, 5),
+        pickup_q=pickup[0],
+        pickup_r=pickup[1],
+        delivery_q=delivery[0],
+        delivery_r=delivery[1],
+        status=OrderStatus.PENDING,
+        created_day=day,
+        expires_day=day + 1,
+    )
+
+
 def apply_event(
-    event: dict, game_state, rovers: List[Rover], zones: Dict
-) -> Tuple[List[str], Dict[Tuple[int, int], ZoneType]]:
-    """Apply event effects and return log messages plus zone updates."""
-    messages = []
-    zone_updates: Dict[Tuple[int, int], ZoneType] = {}
+    event: dict, game_state, rovers: list[Rover], zones: dict
+) -> tuple[list[str], dict[tuple[int, int], ZoneType], list[Order]]:
+    """Apply event effects: mutate game state, rovers and zones.
+
+    Returns log messages, zone updates and newly created orders."""
+    messages: list[str] = []
+    zone_updates: dict[tuple[int, int], ZoneType] = {}
+    new_orders: list[Order] = []
     ev_type = event["event_type"]
     data = event.get("data", {})
 
     if ev_type == EventType.DUST_STORM:
-        messages.append("Пыльная буря: скорость всех роверов снижена на 30% сегодня")
+        game_state.dust_storm_active = True
+        messages.append("Пыльная буря: скорость всех роверов -30%, шанс успеха -10% сегодня")
 
     elif ev_type == EventType.SOLAR_FLARE:
-        messages.append("Солнечная вспышка: навигация нестабильна в случайном секторе")
+        candidates = [
+            pos for pos, z in zones.items()
+            if z != ZoneType.IMPASSABLE and pos != (0, 0)
+        ]
+        if candidates:
+            q, r = random.choice(candidates)
+            game_state.flare_zone = {"q": q, "r": r, "orig": zones[(q, r)].value}
+            zones[(q, r)] = ZoneType.DANGEROUS
+            zone_updates[(q, r)] = ZoneType.DANGEROUS
+            messages.append(f"Солнечная вспышка: сектор ({q},{r}) нестабилен сегодня — зона стала опасной")
+        else:
+            messages.append("Солнечная вспышка: навигация нестабильна (свободных секторов нет)")
 
     elif ev_type == EventType.ROVER_MALFUNCTION:
         rover_id = data.get("rover_id")
@@ -397,11 +460,12 @@ def apply_event(
         for r in rovers:
             if r.id == rover_id:
                 r.status = RoverStatus.BROKEN
-                messages.append(f"Ровер {r.name} сломан, ремонт {repair_days} день(ей)")
+                r.repair_days_left = repair_days
+                messages.append(f"Ровер {r.name} сломан, ремонт {repair_days} дн.")
                 break
 
     elif ev_type == EventType.METEORITE_IMPACT:
-        safe_zones = [pos for pos, z in zones.items() if z != ZoneType.IMPASSABLE]
+        safe_zones = [pos for pos, z in zones.items() if z != ZoneType.IMPASSABLE and pos != (0, 0)]
         if safe_zones:
             q, r = random.choice(safe_zones)
             zones[(q, r)] = ZoneType.IMPASSABLE
@@ -409,59 +473,158 @@ def apply_event(
             messages.append(f"Метеорит ударил в сектор ({q},{r}) — зона стала непроходимой")
 
     elif ev_type == EventType.PRIORITY_ORDER:
-        messages.append("Поступил ПРИОРИТЕТНЫЙ заказ с двойной наградой!")
+        order = _make_priority_order(event.get("day", 1), zones)
+        if order:
+            new_orders.append(order)
+            messages.append(f"Поступил ПРИОРИТЕТНЫЙ заказ {order.title}: двойная награда {order.reward:.0f} ₡!")
+        else:
+            messages.append("Поступил приоритетный заказ, но нет свободных секторов")
 
     elif ev_type == EventType.BASE_UPGRADE:
-        messages.append("База модернизирована: эффективность зарядки +10%")
+        game_state.charge_bonus = min(CHARGE_BONUS_CAP, (game_state.charge_bonus or 0.0) + 0.1)
+        messages.append(
+            f"База модернизирована: зарядка теперь +{BASE_CHARGE_PER_DAY * (1 + game_state.charge_bonus):.0f}% в день"
+        )
 
-    return messages, zone_updates
+    return messages, zone_updates, new_orders
 
 
-def next_day_logic(game_state, rovers: List[Rover], orders: List[Order],
-                   zones: Dict, deliveries_today: List) -> Tuple[List[str], List[Order], List[dict], Dict[Tuple[int, int], ZoneType]]:
-    """Process end of day: recharge, expire orders, generate new orders/events."""
-    messages = []
-    zone_updates: Dict[Tuple[int, int], ZoneType] = {}
+def resolve_delivery(delivery: Delivery, rover: Rover, order: Order, game_state) -> list[str]:
+    """Roll the outcome of an in-transit delivery at the end of the day.
 
+    Success: order delivered, rover idles at base.
+    Failure: order failed, rover returns the next day; with a small
+    chance the rover is lost forever."""
+    messages: list[str] = []
+    success = random.random() < (delivery.success_chance or 0.0)
+
+    delivery.resolved = True
+    delivery.completed_at = datetime.utcnow()
+    rover.current_cargo = 0
+    rover.position_q = rover.base_q
+    rover.position_r = rover.base_r
+    _inc(rover, "total_distance", delivery.distance or 0.0)
+    _inc(game_state, "total_deliveries")
+
+    if success:
+        credits = order.reward * (1.2 if order.urgency >= 4 else 1.0)
+        delivery.success = True
+        delivery.credits_earned = credits
+        order.status = OrderStatus.DELIVERED
+        order.delivered_at = datetime.utcnow()
+        _inc(rover, "deliveries_completed")
+        rover.current_battery = max(0.0, (rover.current_battery or 0.0) - (delivery.battery_consumed or 0.0))
+        rover.status = RoverStatus.IDLE
+        _inc(game_state, "successful_deliveries")
+        _inc(game_state, "credits", credits)
+        game_state.base_rating = min(100.0, (game_state.base_rating or 0.0) + 2)
+        messages.append(f"Доставка «{order.title}» выполнена ровером {rover.name}: +{credits:.0f} ₡")
+    else:
+        delivery.success = False
+        delivery.failure_reason = random.choice(FAILURE_REASONS)
+        delivery.credits_earned = 0.0
+        order.status = OrderStatus.FAILED
+        rover.current_battery = max(0.0, (rover.current_battery or 0.0) - (delivery.battery_consumed or 0.0) * 0.5)
+        _inc(game_state, "failed_deliveries")
+        game_state.base_rating = max(0.0, (game_state.base_rating or 0.0) - 5)
+        if random.random() < ROVER_LOST_CHANCE:
+            rover.status = RoverStatus.LOST
+            _inc(game_state, "rovers_lost")
+            messages.append(f"Доставка «{order.title}» провалена: {delivery.failure_reason}. Ровер {rover.name} ПОТЕРЯН")
+        else:
+            rover.status = RoverStatus.RETURNING
+            messages.append(f"Доставка «{order.title}» провалена: {delivery.failure_reason}. {rover.name} возвращается на базу")
+
+    return messages
+
+
+def next_day_logic(game_state, rovers: list[Rover], orders: list[Order],
+                   zones: dict, active_deliveries: list[Delivery]) -> tuple[list[str], list[Order], list[dict], dict[tuple[int, int], ZoneType]]:
+    """Process end of day: resolve deliveries, recharge, repair, expire orders,
+    generate new orders and events. The day counter is incremented by the caller."""
+    messages: list[str] = []
+    zone_updates: dict[tuple[int, int], ZoneType] = {}
+    current_day = game_state.current_day
+
+    # 1. Rovers returning from a failed delivery arrive at base
     for rover in rovers:
-        if rover.position_q == rover.base_q and rover.position_r == rover.base_r:
-            old_battery = rover.current_battery
-            rover.current_battery = min(rover.max_battery, rover.current_battery + 30)
+        if rover.status == RoverStatus.RETURNING:
+            rover.status = RoverStatus.IDLE
+            messages.append(f"{rover.name} вернулся на базу")
+
+    # 2. Yesterday's solar flare fades: restore the affected zone
+    flare = game_state.flare_zone
+    if flare:
+        pos = (flare["q"], flare["r"])
+        if zones.get(pos) == ZoneType.DANGEROUS:
+            zones[pos] = ZoneType(flare["orig"])
+            zone_updates[pos] = ZoneType(flare["orig"])
+        game_state.flare_zone = None
+        messages.append("Солнечная вспышка закончилась: навигация восстановлена")
+
+    # 3. Recharge rovers that stayed idle at base (BASE_UPGRADE raises the rate)
+    charge_amount = BASE_CHARGE_PER_DAY * (1 + (game_state.charge_bonus or 0.0))
+    for rover in rovers:
+        if rover.status == RoverStatus.IDLE and rover.position_q == rover.base_q and rover.position_r == rover.base_r:
+            old_battery = rover.current_battery or 0.0
+            rover.current_battery = min(rover.max_battery or 100.0, old_battery + charge_amount)
             if rover.current_battery > old_battery:
                 messages.append(f"{rover.name}: заряжен с {old_battery:.0f}% до {rover.current_battery:.0f}%")
 
-        if rover.status == RoverStatus.RETURNING:
-            rover.position_q = rover.base_q
-            rover.position_r = rover.base_r
-            rover.status = RoverStatus.IDLE
-            rover.current_cargo = 0
-            messages.append(f"{rover.name} вернулся на базу")
+    # 4. Resolve deliveries that were in transit today
+    rover_by_id = {r.id: r for r in rovers}
+    order_by_id = {o.id: o for o in orders}
+    for delivery in active_deliveries:
+        if delivery.resolved:
+            continue
+        d_rover = rover_by_id.get(delivery.rover_id)
+        d_order = order_by_id.get(delivery.order_id)
+        if d_rover is None or d_order is None or d_rover.status != RoverStatus.DELIVERING:
+            continue
+        messages.extend(resolve_delivery(delivery, d_rover, d_order, game_state))
 
-        if rover.status == RoverStatus.BROKEN and rover.position_q == rover.base_q and rover.position_r == rover.base_r:
-            rover.status = RoverStatus.IDLE
-            messages.append(f"{rover.name} отремонтирован на базе")
+    # 5. Repair broken rovers at base, one day at a time
+    for rover in rovers:
+        at_base = rover.position_q == rover.base_q and rover.position_r == rover.base_r
+        if (rover.status == RoverStatus.BROKEN and at_base
+                and rover.repair_days_left and rover.repair_days_left > 0):
+            rover.repair_days_left -= 1
+            if rover.repair_days_left <= 0:
+                rover.status = RoverStatus.IDLE
+                messages.append(f"{rover.name} отремонтирован на базе")
+            else:
+                messages.append(f"{rover.name}: ремонт продолжается, осталось {rover.repair_days_left} дн.")
 
+    # 6. Expire urgent orders that were not assigned in time
     for order in orders:
-        if order.status == OrderStatus.PENDING and order.urgency >= 4:
-            if random.random() < 0.5:
-                order.status = OrderStatus.EXPIRED
-                game_state.base_rating -= 5
-                messages.append(f"Заказ {order.title} просрочен! Рейтинг базы -5")
+        if (order.status == OrderStatus.PENDING and order.expires_day is not None
+                and current_day >= order.expires_day):
+            order.status = OrderStatus.EXPIRED
+            game_state.base_rating = max(0.0, (game_state.base_rating or 0.0) - 5)
+            messages.append(f"Заказ {order.title} просрочен! Рейтинг базы -5")
 
-    new_orders = generate_orders(game_state.current_day + 1, zones, Hex(0, 0), orders)
-    for order in new_orders:
-        orders.append(order)
+    # 7. New orders for the new day
+    new_orders = generate_orders(current_day, zones, Hex(0, 0), orders)
+    orders.extend(new_orders)
     if new_orders:
         messages.append(f"Новые заказы: {len(new_orders)}")
 
-    event_data = generate_random_event(game_state.current_day + 1, game_state, rovers)
-    events = []
+    # 8. Reset one-day weather effects before rolling today's event
+    game_state.dust_storm_active = False
+
+    # 9. Random event for the new day
+    event_data = generate_random_event(current_day, game_state, rovers)
+    events: list[dict] = []
     if event_data:
         events.append(event_data)
-        event_messages, event_zone_updates = apply_event(event_data, game_state, rovers, zones)
+        event_messages, event_zone_updates, event_orders = apply_event(event_data, game_state, rovers, zones)
         messages.extend(event_messages)
         zone_updates.update(event_zone_updates)
+        if event_orders:
+            new_orders.extend(event_orders)
+            orders.extend(event_orders)
 
+    # 10. End-game checks
     if game_state.base_rating <= 0:
         game_state.is_game_over = True
         game_state.game_over_reason = "Рейтинг базы упал до 0"

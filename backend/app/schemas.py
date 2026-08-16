@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel, Field
-from app.models import ZoneType, RoverStatus, OrderStatus, EventType
+
+from app.models import EventType, OrderStatus, RoverStatus, ZoneType
 
 
 class ZoneBase(BaseModel):
@@ -10,7 +12,7 @@ class ZoneBase(BaseModel):
     zone_type: ZoneType = ZoneType.SAFE
     risk_modifier: float = 1.0
     speed_modifier: float = 1.0
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class ZoneCreate(ZoneBase):
@@ -37,11 +39,11 @@ class RoverCreate(RoverBase):
 
 
 class RoverUpdate(BaseModel):
-    current_battery: Optional[float] = None
-    current_cargo: Optional[float] = None
-    status: Optional[RoverStatus] = None
-    position_q: Optional[int] = None
-    position_r: Optional[int] = None
+    current_battery: float | None = None
+    current_cargo: float | None = None
+    status: RoverStatus | None = None
+    position_q: int | None = None
+    position_r: int | None = None
 
 
 class RoverResponse(RoverBase):
@@ -55,6 +57,7 @@ class RoverResponse(RoverBase):
     base_r: int
     deliveries_completed: int
     total_distance: float
+    repair_days_left: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -64,7 +67,7 @@ class RoverResponse(RoverBase):
 
 class OrderBase(BaseModel):
     title: str
-    description: Optional[str] = None
+    description: str | None = None
     weight: float = Field(gt=0)
     reward: float = Field(ge=0)
     urgency: int = Field(ge=1, le=5, default=1)
@@ -73,7 +76,7 @@ class OrderBase(BaseModel):
     pickup_r: int
     delivery_q: int
     delivery_r: int
-    expires_at: Optional[datetime] = None
+    expires_day: int | None = None  # game-day deadline for urgent orders
 
 
 class OrderCreate(OrderBase):
@@ -83,10 +86,11 @@ class OrderCreate(OrderBase):
 class OrderResponse(OrderBase):
     id: int
     status: OrderStatus
+    created_day: int = 1
     created_at: datetime
-    assigned_rover_id: Optional[int] = None
-    assigned_at: Optional[datetime] = None
-    delivered_at: Optional[datetime] = None
+    assigned_rover_id: int | None = None
+    assigned_at: datetime | None = None
+    delivered_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -102,13 +106,15 @@ class DeliveryResponse(BaseModel):
     rover_id: int
     order_id: int
     started_at: datetime
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
     distance: float
     battery_consumed: float
     success: bool
-    failure_reason: Optional[str] = None
+    resolved: bool = False
+    success_chance: float = 0.0
+    failure_reason: str | None = None
     credits_earned: float
-    path_taken: Optional[List[Dict[str, int]]] = None
+    path_taken: list[dict[str, int]] | None = None
 
     class Config:
         from_attributes = True
@@ -118,7 +124,7 @@ class GameEventBase(BaseModel):
     event_type: EventType
     day: int
     description: str
-    data: Optional[Dict[str, Any]] = None
+    data: dict[str, Any] | None = None
 
 
 class GameEventCreate(GameEventBase):
@@ -143,8 +149,10 @@ class GameStateBase(BaseModel):
     successful_deliveries: int = 0
     failed_deliveries: int = 0
     rovers_lost: int = 0
+    charge_bonus: float = 0.0
+    dust_storm_active: bool = False
     is_game_over: bool = False
-    game_over_reason: Optional[str] = None
+    game_over_reason: str | None = None
     won: bool = False
 
 
@@ -166,9 +174,9 @@ class DeliverySimulationResponse(BaseModel):
     battery_needed: float
     time_estimate: float  # hours
     risk_score: float  # 0-1, chance of failure
-    path: List[Dict[str, int]]
-    warnings: List[str] = []
-    failure_reason: Optional[str] = None
+    path: list[dict[str, int]]
+    warnings: list[str] = []
+    failure_reason: str | None = None
     success_chance: float = 0.95
 
 
@@ -185,9 +193,10 @@ class NextDayResponse(BaseModel):
     day: int
     credits: float
     base_rating: float
-    new_orders: List[OrderResponse]
-    events: List[GameEventResponse]
-    rover_updates: List[RoverResponse]
+    new_orders: list[OrderResponse]
+    events: list[GameEventResponse]
+    rover_updates: list[RoverResponse]
+    messages: list[str] = []
     is_game_over: bool
-    game_over_reason: Optional[str] = None
+    game_over_reason: str | None = None
     won: bool = False
